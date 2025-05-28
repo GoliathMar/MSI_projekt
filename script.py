@@ -33,7 +33,7 @@ random.seed(SEED);  torch.manual_seed(SEED)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cpu":
     BATCH_SIZE = 8    
-print(f"💻  device: {device} | batch: {BATCH_SIZE}")
+print(f"device: {device} | batch: {BATCH_SIZE}")
 
 # wczytanie CSV + walidacja obrazów
 df = pd.read_csv(CSV_PATH)

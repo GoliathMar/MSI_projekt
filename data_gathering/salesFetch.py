@@ -34,7 +34,7 @@ def fetch_last_sale(contract_address: str, token_id: str, chain: str) -> dict:
     except Exception as e:
         return {"last_sale_price": None, "num_sales": 0}
     if response.status_code != 200:
-        log(f"❌ /events/chain/{chain}/contract/{contract_address}/nfts/{token_id} → {response.status_code}", "WARN")
+        log(f"/events/chain/{chain}/contract/{contract_address}/nfts/{token_id} → {response.status_code}", "WARN")
         try:
             log(response.json(), "WARN")
         except:
@@ -52,5 +52,5 @@ def fetch_last_sale(contract_address: str, token_id: str, chain: str) -> dict:
         price = quantity / (10 ** decimals) if decimals else None
         return {"last_sale_price": price, "num_sales": 1}
     except Exception as e:
-        log(f"⚠️ Error parsing sale data for token {token_id}: {e}", "WARN")
+        log(f"Error parsing sale data for token {token_id}: {e}", "WARN")
         return {"last_sale_price": None, "num_sales": 0}

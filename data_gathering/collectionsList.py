@@ -34,7 +34,7 @@ def get_collections_batch(limit: int = 100, next_cursor: Optional[str] = None) -
         else:
             log(f"/collections → {r.status_code}", "ERR")
     except Exception as e:
-        log(f"⚠️ Request error → {e}", "ERR")
+        log(f"Request error → {e}", "ERR")
    
 
     return {"collections": [], "next": None}

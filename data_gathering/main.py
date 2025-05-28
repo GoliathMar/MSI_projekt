@@ -42,7 +42,7 @@ used_slugs = set()
 if os.path.exists("last_cursor.txt"):
     with open("last_cursor.txt", "r") as f:
         next_cursor = f.read().strip()
-    log(f"▶️ Wznawiam od kursora: {next_cursor}", "INFO")
+    log(f"Wznawiam od kursora: {next_cursor}", "INFO")
 else:
     next_cursor = None
 
@@ -123,5 +123,5 @@ while valid_nft_count < TARGET_NFT_COUNT:
 if next_cursor:
     with open("last_cursor.txt", "w") as f:
         f.write(next_cursor)
-log(f"✅ Uzbierano {valid_nft_count} NFT (cel: {TARGET_NFT_COUNT})", "OK")
+log(f"Uzbierano {valid_nft_count} NFT (cel: {TARGET_NFT_COUNT})", "OK")
 log(f"CSV saved → {CSV_PATH}", "OK")
