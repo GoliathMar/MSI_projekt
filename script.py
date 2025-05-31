@@ -10,32 +10,25 @@ from torchvision import transforms
 
 from PIL import Image, ImageFile
 import pandas as pd
+
 from sklearn.model_selection import GroupShuffleSplit
 from torch.optim.lr_scheduler import CosineAnnealingLR  
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 
-# ——————————————————  konfiguracja  ——————————————————
 CSV_PATH   = "./data_gathering/nft_dataset.csv"
 IMG_DIR    = Path("data_gathering/images")
 TEST_SIZE  = 0.20
-BATCH_SIZE = 32              
+BATCH_SIZE = 20             
 EPOCHS_HEAD, EPOCHS_FULL = 3, 7
 EARLY_STOP_PATIENCE = 3
 LR_HEAD      = 3e-4
 LR_BACKBONE  = 1e-4
-FREEZE_UP_TO = "features.4"
-SEED         = 42
+FREEZE_UP_TO = 4
 
-# powtarzalność
-random.seed(SEED);  torch.manual_seed(SEED)
-
-# Dostosowanie obiążenia RAM
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-if device.type == "cpu":
-    BATCH_SIZE = 8    
-print(f"device: {device} | batch: {BATCH_SIZE}")
 
-# wczytanie CSV + walidacja obrazów
+
+# wczytanie + walidacja obrazów
 df = pd.read_csv(CSV_PATH)
 def safe(name: str) -> str:
     return name.replace(" ", "_").replace("/", "-").replace("\\", "-").replace("#","")
@@ -54,16 +47,17 @@ for _, r in df.iterrows():
     except Exception: continue
 
 data = pd.DataFrame({"path":paths,"price":prices,"collection":colls})
+
+#rozdzielenie na dwie klasy(popularna i niepopularna)
 kwantyl = data["price"].quantile(0.75)
 data["label"] = (data["price"] >= kwantyl).astype(int)
 
 
-# split po kolekcjach
-gss = GroupShuffleSplit(n_splits=1, test_size=TEST_SIZE, random_state=SEED)
+#split po kolekcjach
+gss = GroupShuffleSplit(n_splits=1, test_size=TEST_SIZE)
 tr_idx, val_idx = next(gss.split(data, groups=data["collection"]))
 tr_df, val_df   = data.iloc[tr_idx], data.iloc[val_idx]
 
-# przystosowanie i zwiększenie róźnorodności danych
 train_tf = transforms.Compose([
         transforms.RandomResizedCrop(224, (0.8,1.0)),
         transforms.RandomHorizontalFlip(),
@@ -80,17 +74,17 @@ class NFT(Dataset):
         row = self.df.iloc[i]
         try:
             img = Image.open(row.path).convert("RGB")
-            img = self.tf(img)
+            img = self.tf(img) #tutaj transformuje
             return img, torch.tensor(row.label, dtype=torch.float32)
         except Exception: return None
 
-def collate(batch):
+def collate(batch): #usuwa wpisy dla których nue udało się pobrać obrazka
     batch=[b for b in batch if b]; 
     return None if not batch else torch.utils.data.dataloader.default_collate(batch)
 
 
-class_bal = tr_df["label"].value_counts()
-weights   = tr_df["label"].apply(lambda x: 1./class_bal[x]).values
+class_bal = tr_df["label"].value_counts() #zlicza liczebność klas
+weights   = tr_df["label"].apply(lambda x: 1./class_bal[x]).values #dostosowanie wagi dla każdej klasy tak żeby przy uczeniu brało po równo
 sampler   = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
 
 tr_loader = DataLoader(NFT(tr_df,train_tf), batch_size=BATCH_SIZE,
@@ -101,27 +95,26 @@ val_loader= DataLoader(NFT(val_df,val_tf),   batch_size=BATCH_SIZE,
                        pin_memory=(device.type=="cuda"), collate_fn=collate)
 
 
-####################################################################################################
 
 
-# model
+#model
 weights = EfficientNet_B0_Weights.DEFAULT
 model   = efficientnet_b0(weights=weights)
 
-# zamrożenie części warstw
-unfreeze=False
-for n,p in model.named_parameters():
-    if FREEZE_UP_TO in n: unfreeze=True
-    p.requires_grad = unfreeze
+#zamrożenie części warstw
+for idx, layer in enumerate(model.features):
+    requires_grad = idx > FREEZE_UP_TO   # zamraża 0–4, uczy 5+
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
 
-# label‑smoothing
+#label‑smoothing
 in_f = model.classifier[1].in_features
 class SmoothedLinear(nn.Linear):
     def forward(self, x, eps=0.1):
         out = super().forward(x)
         return out * (1-eps) + eps/2   
     
-# przypisanie nowej głowy
+#przypisanie nowej head
 model.classifier = nn.Sequential(
         nn.Dropout(0.5),
         SmoothedLinear(in_f, 1)
@@ -130,7 +123,7 @@ model.classifier = nn.Sequential(
 
 model.to(device)
 
-# Niestandardowa funkcja straty - Focal Loss
+
 class FocalLoss(nn.Module):
     def __init__(self, gamma=2): super().__init__(); self.g=gamma
     def forward(self, logit, target):
@@ -142,7 +135,7 @@ class FocalLoss(nn.Module):
     
 criterion = FocalLoss(gamma=2)
 
-# konfiguracja learning rate
+#konfiguracja learning rate
 head_params = [p for n,p in model.named_parameters() if 'classifier' in n]
 bb_params   = [p for n,p in model.named_parameters() if 'classifier' not in n]
 opt = torch.optim.AdamW([
@@ -151,7 +144,7 @@ opt = torch.optim.AdamW([
     ], weight_decay=1e-4)
 sched = CosineAnnealingLR(opt, T_max=EPOCHS_HEAD + EPOCHS_FULL) 
 
-# trenowanie lub testowanie etapu (funkcja pomocnicza)
+#trenowanie lub testowanie etapu (funkcja pomocnicza)
 def epoch(loader, train):
     model.train(train)
     tot,n,yt,yh = 0,0,[],[]
@@ -170,7 +163,7 @@ def epoch(loader, train):
 best_f1, patience = 0, EARLY_STOP_PATIENCE
 phase = 'head'
 
-# trenowanie
+#trenowanie
 for ep in range(1,EPOCHS_HEAD+EPOCHS_FULL+1):
     t0=time.time()
     tr_l,tr_a,tr_f=epoch(tr_loader,True)
@@ -182,21 +175,24 @@ for ep in range(1,EPOCHS_HEAD+EPOCHS_FULL+1):
           f"val loss {vl_l:.3f} acc {vl_a:.3f} f1 {vl_f:.3f} | "
           f"{time.time()-t0:.1f}s")
 
-    # early stop
+  
     if vl_f > best_f1+1e-3:
         best_f1, patience = vl_f, EARLY_STOP_PATIENCE
     else:
         patience -= 1
         if patience==0:
-            print("early‑stopping – brak poprawy F1"); break
+            print("early‑stopping"); break
 
-    # po epokach head‑only odmrażamy cały model
     if ep == EPOCHS_HEAD:
         print("odblokowuję cały backbone")
         for p in model.parameters(): p.requires_grad=True
         phase='full'
 
-# raport końcowy
+
+
+
+
+#raport końcowy
 model.eval(); logits,labels=[],[]
 with torch.no_grad():
     for batch in val_loader:
@@ -206,9 +202,9 @@ with torch.no_grad():
 y_val=torch.cat(labels).numpy(); probs=torch.cat(logits).numpy()
 y_pred=(probs>=0.5).astype(int)
 
-print("classification report (val, thr=0.5):\n")
+print("classification report:\n")
 print(classification_report(y_val, y_pred, digits=3))
 
-# zapisanie modelu
+
 torch.save(model.state_dict(), "nft_classifier.pt")
 print(" Model zapisany jako nft_classifier.pt")
