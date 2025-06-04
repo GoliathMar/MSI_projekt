@@ -10,7 +10,7 @@ EfficientNet-B0 do przewidywania, czy NFT osiągnie cenę z górnego kwartyla
 ## Opis projektu <a id="opis-projektu"></a>
 
 Skrypt **`script.py`** trenuje wstępnie wytrenowany model
-EfficientNet-B0 (PyTorch/Torchvision) na obrazach NFT, aby
+EfficientNet-B0 na obrazach NFT, aby
 sklasyfikować obraz jako **popularny**
 lub **niepopularny**.
 
